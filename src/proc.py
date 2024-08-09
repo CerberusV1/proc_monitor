@@ -1,4 +1,7 @@
 import os
+from rich.console import Console
+from rich.table import Table
+from rich.text import Text
 
 proc_folder = '/proc'
 
@@ -23,7 +26,6 @@ def list_processes():
             arr_of_procs.append(item)  # Append the process ID
 
     return arr_of_procs
-
 
 def read_proc_status_file(pid):
     status_file = f"/proc/{pid}/status"
@@ -59,12 +61,23 @@ def read_proc_status_file(pid):
     else:
         return None
 
+def display_processes():
+    console = Console()
+    processes = list_processes()
+    
+    table = Table(show_header=True, header_style="red")
+    table.add_column("Name", style="bold green", width=30)
+    table.add_column("PID", style="cyan" )
+    table.add_column("PPid", style="cyan")
+    table.add_column("User", style="yellow")
 
-processes = list_processes()
-for pid in processes:
-    proc_info = read_proc_status_file(pid)
-    if proc_info:
-        name, ppid, username = proc_info
-        print(f"Process:    {name},    PPid:    {ppid},    User:    {username}")
+    for pid in processes:
+        proc_info = read_proc_status_file(pid)
+        if proc_info:
+            name, ppid, username = proc_info
+            table.add_row(name, pid, ppid, username)
 
-print("testing commit issue");
+    console.print(table)
+
+if __name__ == "__main__":
+    display_processes()
