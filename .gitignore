@@ -1,0 +1,29 @@
+# Virtual environment
+env/
+venv/
+
+# Bytecode files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Distribution / Packaging
+*.egg
+*.egg-info
+dist/
+build/
+*.egg-info/
+
+# IDE/editor directories and files
+.vscode/
+.idea/
+*.swp
+
+# Environment configuration files
+.env
+*.env
+
+# OS-specific files
+.DS_Store
+Thumbs.db
