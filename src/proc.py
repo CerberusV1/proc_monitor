@@ -61,21 +61,50 @@ def read_proc_status_file(pid):
     else:
         return None
 
+def get_proc_state(pid):
+    stat_file = f"/proc/{pid}/stat"
+    
+    try:
+        with open(stat_file, 'r') as f:
+            file_content = f.read()
+    except FileNotFoundError:
+        return None
+    
+    state_abbrev = file_content.split()[2]
+    state = {
+        "R": "Running",
+        "S": "Sleeping",
+        "D": "Disk sleep",
+        "Z": "Zombie",
+        "T": "Stopped",
+        "t": "Tracing stop",
+        "W": "Paging",
+        "X": "Dead",
+        "x": "Dead",
+        "K": "Wakekill",
+        "P": "Parked",
+        "I": "Idle",
+    }.get(state_abbrev, "N/A")
+    
+    return state
+
 def display_processes():
     console = Console()
     processes = list_processes()
     
     table = Table(show_header=True, header_style="red")
     table.add_column("Name", style="bold green", width=30)
-    table.add_column("PID", style="cyan" )
+    table.add_column("PID", style="cyan")
     table.add_column("PPid", style="cyan")
     table.add_column("User", style="yellow")
+    table.add_column("State", style="magenta")
 
     for pid in processes:
         proc_info = read_proc_status_file(pid)
         if proc_info:
             name, ppid, username = proc_info
-            table.add_row(name, pid, ppid, username)
+            state = get_proc_state(pid)
+            table.add_row(name, pid, ppid, username, state)
 
     console.print(table)
 
