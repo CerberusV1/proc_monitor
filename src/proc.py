@@ -1,7 +1,6 @@
 import os
 from rich.console import Console
 from rich.table import Table
-from rich.text import Text
 
 proc_folder = '/proc'
 
@@ -88,6 +87,32 @@ def get_proc_state(pid):
     
     return state
 
+def get_proc_memory(pid):
+    statm_file = f"/proc/{pid}/statm"
+    
+    try:
+        with open(statm_file, 'r') as f:
+            status = f.read()
+    except FileNotFoundError:
+        return None
+    
+    resident_str = status.split()[1]
+    
+    try:
+        resident = int(resident_str)
+        mem = resident * 4  # Assume 4KB per page
+    except ValueError:
+        return None
+    
+    if mem > 1_000_000:
+        mem_str = f"{mem / 1_024 / 1_024:.2f} Gb"
+    elif mem > 1_000:
+        mem_str = f"{mem / 1_024:.2f} Mb"
+    else:
+        mem_str = f"{mem:.2f} Kb"
+    
+    return mem_str
+
 def display_processes():
     console = Console()
     processes = list_processes()
@@ -98,13 +123,15 @@ def display_processes():
     table.add_column("PPid", style="cyan")
     table.add_column("User", style="yellow")
     table.add_column("State", style="magenta")
+    table.add_column("Memory", style="blue")
 
     for pid in processes:
         proc_info = read_proc_status_file(pid)
         if proc_info:
             name, ppid, username = proc_info
             state = get_proc_state(pid)
-            table.add_row(name, pid, ppid, username, state)
+            memory = get_proc_memory(pid)
+            table.add_row(name, pid, ppid, username, state, memory or "N/A")
 
     console.print(table)
 
