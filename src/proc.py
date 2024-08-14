@@ -113,6 +113,20 @@ def get_proc_memory(pid):
     
     return mem_str
 
+
+def get_total_cpu_time():
+    try:
+        with open("/proc/stat", "r") as f:
+            for line in f:
+                if line.startswith("cpu "):
+                    total_cpu_time = sum(int(value) for value in line.split()[1:])
+                    return total_cpu_time
+        raise FileNotFoundError("Total CPU time not found in /proc/stat")
+    except IOError as e:
+        return str(e)
+
+
+
 def display_processes():
     console = Console()
     processes = list_processes()
