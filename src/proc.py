@@ -1,6 +1,7 @@
 import os
 from rich.console import Console
 from rich.table import Table
+import time
 
 proc_folder = '/proc'
 
@@ -113,7 +114,6 @@ def get_proc_memory(pid):
     
     return mem_str
 
-
 def get_total_cpu_time():
     try:
         with open("/proc/stat", "r") as f:
@@ -125,7 +125,48 @@ def get_total_cpu_time():
     except IOError as e:
         return str(e)
 
+def get_process_cpu_time(pid):
+    stat_file = f"/proc/{pid}/stat"
+    
+    try:
+        with open(stat_file, 'r') as f:
+            file_content = f.read()
+    except FileNotFoundError:
+        return None
+    
+    fields = file_content.split()
+    utime = int(fields[13])
+    stime = int(fields[14])
+    
+    return utime, stime
 
+def calculate_cpu_percentage(duration_secs):
+    total_cpu_time_start = get_total_cpu_time()
+    pids = list_processes()
+
+    process_cpu_times = []
+    for pid_str in pids:
+        pid = int(pid_str)
+        if pid:
+            cpu_time = get_process_cpu_time(pid)
+            if cpu_time:
+                process_cpu_times.append((pid, cpu_time))
+
+    time.sleep(duration_secs)
+
+    total_cpu_time_end = get_total_cpu_time()
+    cpu_usage_results = []
+
+    for pid, (utime_start, stime_start) in process_cpu_times:
+        cpu_time = get_process_cpu_time(pid)
+        if cpu_time:
+            utime_end, stime_end = cpu_time
+            total_cpu_time_diff = total_cpu_time_end - total_cpu_time_start
+            cpu_time_diff = (utime_end + stime_end) - (utime_start + stime_start)
+            max_cpu_usage = 100.0 * cpu_time_diff / total_cpu_time_diff
+            cpu_usage_results.append((pid, max_cpu_usage))
+
+    return cpu_usage_results
 
 def display_processes():
     console = Console()
@@ -138,6 +179,9 @@ def display_processes():
     table.add_column("User", style="yellow")
     table.add_column("State", style="magenta")
     table.add_column("Memory", style="blue")
+    table.add_column("CPU Usage (%)", style="bold red")
+
+    cpu_usage_results = calculate_cpu_percentage(1)
 
     for pid in processes:
         proc_info = read_proc_status_file(pid)
@@ -145,7 +189,8 @@ def display_processes():
             name, ppid, username = proc_info
             state = get_proc_state(pid)
             memory = get_proc_memory(pid)
-            table.add_row(name, pid, ppid, username, state, memory or "N/A")
+            cpu_usage = next((f"{cpu:.2f}" for p, cpu in cpu_usage_results if str(p) == pid), "N/A")
+            table.add_row(name, pid, ppid, username, state, memory or "N/A", cpu_usage)
 
     console.print(table)
 
