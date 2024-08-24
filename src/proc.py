@@ -1,11 +1,13 @@
 import os
-from rich.console import Console
-from rich.table import Table
 import time
+from rich.table import Table
+from textual.app import App, ComposeResult
+from textual.containers import VerticalScroll
+from textual.widgets import Header, Footer, Static
+
 
 proc_folder = '/proc'
 
-# Function to check if a string contains any digits
 def contains_digits(s):
     return any(char.isdigit() for char in s)
 
@@ -30,7 +32,6 @@ def list_processes():
 def read_proc_status_file(pid):
     status_file = f"/proc/{pid}/status"
     
-    # Try to read the status file
     try:
         with open(status_file, 'r') as f:
             status = f.read()
@@ -41,7 +42,6 @@ def read_proc_status_file(pid):
     ppid = None
     uid = None
     
-    # Process each line in the status file
     for line in status.splitlines():
         if line.startswith("Name:"):
             name = line.split()[1]
@@ -52,7 +52,6 @@ def read_proc_status_file(pid):
             if uid_str.isdigit():
                 uid = get_username(int(uid_str))
         
-        # If all values are found, break out of the loop
         if name and ppid and uid:
             break
     
@@ -168,31 +167,72 @@ def calculate_cpu_percentage(duration_secs):
 
     return cpu_usage_results
 
-def display_processes():
-    console = Console()
-    processes = list_processes()
-    
-    table = Table(show_header=True, header_style="red")
-    table.add_column("Name", style="bold green", width=30)
-    table.add_column("PID", style="cyan")
-    table.add_column("PPid", style="cyan")
-    table.add_column("User", style="yellow")
-    table.add_column("State", style="magenta")
-    table.add_column("Memory", style="blue")
-    table.add_column("CPU Usage (%)", style="bold red")
+class ProcessTable(Static):
+    def on_mount(self):
+        self.update(self.render_table())
 
-    cpu_usage_results = calculate_cpu_percentage(1)
+    def render_table(self) -> Table:
+        table = Table(show_header=True, header_style="red")
+        table.add_column("Name", style="bold green", width=30)
+        table.add_column("PID", style="cyan")
+        table.add_column("PPid", style="cyan")
+        table.add_column("User", style="yellow")
+        table.add_column("State", style="magenta")
+        table.add_column("Memory", style="blue")
+        table.add_column("CPU Usage (%)", style="bold red")
 
-    for pid in processes:
-        proc_info = read_proc_status_file(pid)
-        if proc_info:
-            name, ppid, username = proc_info
-            state = get_proc_state(pid)
-            memory = get_proc_memory(pid)
-            cpu_usage = next((f"{cpu:.2f}" for p, cpu in cpu_usage_results if str(p) == pid), "N/A")
-            table.add_row(name, pid, ppid, username, state, memory or "N/A", cpu_usage)
+        processes = list_processes()
+        cpu_usage_results = calculate_cpu_percentage(1)
 
-    console.print(table)
+        for pid in processes:
+            proc_info = read_proc_status_file(pid)
+            if proc_info:
+                name, ppid, username = proc_info
+                state = get_proc_state(pid)
+                memory = get_proc_memory(pid)
+                cpu_usage = next((f"{cpu:.2f}" for p, cpu in cpu_usage_results if str(p) == pid), "N/A")
+                table.add_row(name, pid, ppid, username, state, memory or "N/A", cpu_usage)
+
+        return table
+
+    def refresh_table(self):
+        self.update(self.render_table())
+
+from multiprocessing import Process, Queue
+
+class PROC_MONITOR(App):
+    def __init__(self):
+        super().__init__()
+        self.cpu_process = None
+        self.cpu_queue = Queue()
+
+    def on_mount(self):
+        self.set_interval(1, self.refresh_table())  # Refresh table every 1 second
+
+        # Start a separate process for CPU calculation
+        self.cpu_process = Process(target=self.calculate_cpu_worker)
+        self.cpu_process.start()
+
+    def calculate_cpu_worker(self):
+        while True:
+            cpu_usage_results = calculate_cpu_percentage(1)
+            self.cpu_queue.put(cpu_usage_results)
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Footer()
+        self.process_table = ProcessTable()
+        self.scroll = VerticalScroll(self.process_table)
+        yield self.scroll
+
+    def refresh_table(self):
+        self.process_table.refresh_table()
+
+    def on_shutdown(self):
+        if self.cpu_process:
+            self.cpu_process.terminate()
+
 
 if __name__ == "__main__":
-    display_processes()
+    app = PROC_MONITOR()
+    app.run()
