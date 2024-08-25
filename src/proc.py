@@ -192,6 +192,11 @@ def get_memory_usage_percentage():
     return None
 
 class ProcessTable(Static):
+    def __init__(self, cpu_queue):
+        super().__init__()
+        self.cpu_queue = cpu_queue
+        self.cpu_usage_results = []
+
     def on_mount(self):
         self.update(self.render_table())
 
@@ -207,20 +212,23 @@ class ProcessTable(Static):
         table.add_column("CPU Usage (%)", style="bold red")
 
         processes = list_processes()
-        cpu_usage_results = calculate_cpu_percentage(1)
 
+        # Use the latest CPU usage results
         for pid in processes:
             proc_info = read_proc_status_file(pid)
             if proc_info:
                 name, ppid, username = proc_info
                 state = get_proc_state(pid)
                 memory = get_proc_memory(pid)
-                cpu_usage = next((f"{cpu:.2f}" for p, cpu in cpu_usage_results if str(p) == pid), "N/A")
+                cpu_usage = next((f"{cpu:.2f}" for p, cpu in self.cpu_usage_results if str(p) == pid), "N/A")
                 table.add_row(name, pid, ppid, username, state, memory or "N/A", cpu_usage)
 
         return table
 
     def refresh_table(self):
+        # Update CPU usage results from the queue if available
+        if not self.cpu_queue.empty():
+            self.cpu_usage_results = self.cpu_queue.get_nowait()
         self.update(self.render_table())
 
 class PROC_MONITOR(App):
@@ -230,7 +238,8 @@ class PROC_MONITOR(App):
         self.cpu_queue = Queue()
 
     def on_mount(self):
-        self.set_interval(1, self.refresh_table())  # Refresh table every 1 second
+        # Corrected set_interval to pass the method reference
+        self.set_interval(1, self.refresh_table)
 
         # Start a separate process for CPU calculation
         self.cpu_process = Process(target=self.calculate_cpu_worker)
@@ -244,7 +253,7 @@ class PROC_MONITOR(App):
     def compose(self) -> ComposeResult:
         yield Header()
         yield Footer()
-        self.process_table = ProcessTable()
+        self.process_table = ProcessTable(self.cpu_queue)
         self.scroll = VerticalScroll(self.process_table)
         yield self.scroll
 
