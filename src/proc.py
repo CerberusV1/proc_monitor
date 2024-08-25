@@ -4,7 +4,7 @@ from rich.table import Table
 from textual.app import App, ComposeResult
 from textual.containers import VerticalScroll
 from textual.widgets import Header, Footer, Static
-
+from multiprocessing import Process, Queue
 
 proc_folder = '/proc'
 
@@ -167,38 +167,69 @@ def calculate_cpu_percentage(duration_secs):
 
     return cpu_usage_results
 
+def get_memory_usage_percentage():
+    total_memory = 0
+    available_memory = 0
+    
+    try:
+        with open("/proc/meminfo", "r") as file:
+            for line in file:
+                parts = line.split()
+                if len(parts) >= 2:
+                    if parts[0] == "MemTotal:":
+                        total_memory = int(parts[1])
+                    elif parts[0] == "MemAvailable:":
+                        available_memory = int(parts[1])
+        
+        if total_memory != 0:
+            used_memory = total_memory - available_memory
+            memory_usage_percentage = (used_memory * 100) // total_memory
+            return memory_usage_percentage
+
+    except FileNotFoundError:
+        return None
+    
+    return None
+
 class ProcessTable(Static):
+    def __init__(self, cpu_queue):
+        super().__init__()
+        self.cpu_queue = cpu_queue
+        self.cpu_usage_results = []
+
     def on_mount(self):
         self.update(self.render_table())
 
     def render_table(self) -> Table:
+        memory_usage_percentage = get_memory_usage_percentage()
         table = Table(show_header=True, header_style="red")
         table.add_column("Name", style="bold green", width=30)
         table.add_column("PID", style="cyan")
         table.add_column("PPid", style="cyan")
         table.add_column("User", style="yellow")
         table.add_column("State", style="magenta")
-        table.add_column("Memory", style="blue")
+        table.add_column(f"Memory ({memory_usage_percentage}%)", style="blue")
         table.add_column("CPU Usage (%)", style="bold red")
 
         processes = list_processes()
-        cpu_usage_results = calculate_cpu_percentage(1)
 
+        # Use the latest CPU usage results
         for pid in processes:
             proc_info = read_proc_status_file(pid)
             if proc_info:
                 name, ppid, username = proc_info
                 state = get_proc_state(pid)
                 memory = get_proc_memory(pid)
-                cpu_usage = next((f"{cpu:.2f}" for p, cpu in cpu_usage_results if str(p) == pid), "N/A")
+                cpu_usage = next((f"{cpu:.2f}" for p, cpu in self.cpu_usage_results if str(p) == pid), "N/A")
                 table.add_row(name, pid, ppid, username, state, memory or "N/A", cpu_usage)
 
         return table
 
     def refresh_table(self):
+        # Update CPU usage results from the queue if available
+        if not self.cpu_queue.empty():
+            self.cpu_usage_results = self.cpu_queue.get_nowait()
         self.update(self.render_table())
-
-from multiprocessing import Process, Queue
 
 class PROC_MONITOR(App):
     def __init__(self):
@@ -207,7 +238,8 @@ class PROC_MONITOR(App):
         self.cpu_queue = Queue()
 
     def on_mount(self):
-        self.set_interval(1, self.refresh_table())  # Refresh table every 1 second
+        # Corrected set_interval to pass the method reference
+        self.set_interval(1, self.refresh_table)
 
         # Start a separate process for CPU calculation
         self.cpu_process = Process(target=self.calculate_cpu_worker)
@@ -221,7 +253,7 @@ class PROC_MONITOR(App):
     def compose(self) -> ComposeResult:
         yield Header()
         yield Footer()
-        self.process_table = ProcessTable()
+        self.process_table = ProcessTable(self.cpu_queue)
         self.scroll = VerticalScroll(self.process_table)
         yield self.scroll
 
@@ -232,11 +264,6 @@ class PROC_MONITOR(App):
         if self.cpu_process:
             self.cpu_process.terminate()
 
-
 if __name__ == "__main__":
     app = PROC_MONITOR()
     app.run()
-
-
-#im usefull and just give you a comment
-#well seems like i need to do way more productive stuff, and write another line of comment  
