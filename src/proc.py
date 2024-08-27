@@ -3,7 +3,7 @@ import time
 from rich.table import Table
 from textual.app import App, ComposeResult
 from textual.containers import VerticalScroll
-from textual.widgets import Header, Footer, Static
+from textual.widgets import Header, Footer, Static, Input
 from multiprocessing import Process, Queue
 
 proc_folder = '/proc'
@@ -192,10 +192,11 @@ def get_memory_usage_percentage():
     return None
 
 class ProcessTable(Static):
-    def __init__(self, cpu_queue):
+    def __init__(self, cpu_queue, search_term=""):
         super().__init__()
         self.cpu_queue = cpu_queue
         self.cpu_usage_results = []
+        self.search_term = search_term
 
     def on_mount(self):
         self.update(self.render_table())
@@ -218,10 +219,11 @@ class ProcessTable(Static):
             proc_info = read_proc_status_file(pid)
             if proc_info:
                 name, ppid, username = proc_info
-                state = get_proc_state(pid)
-                memory = get_proc_memory(pid)
-                cpu_usage = next((f"{cpu:.2f}" for p, cpu in self.cpu_usage_results if str(p) == pid), "N/A")
-                table.add_row(name, pid, ppid, username, state, memory or "N/A", cpu_usage)
+                if self.search_term.lower() in name.lower() or self.search_term.lower() in pid:
+                    state = get_proc_state(pid)
+                    memory = get_proc_memory(pid)
+                    cpu_usage = next((f"{cpu:.2f}" for p, cpu in self.cpu_usage_results if str(p) == pid), "N/A")
+                    table.add_row(name, pid, ppid, username, state, memory or "N/A", cpu_usage)
 
         return table
 
@@ -231,11 +233,16 @@ class ProcessTable(Static):
             self.cpu_usage_results = self.cpu_queue.get_nowait()
         self.update(self.render_table())
 
+    def update_search_term(self, search_term):
+        self.search_term = search_term
+        self.refresh_table()
+
 class PROC_MONITOR(App):
     def __init__(self):
         super().__init__()
         self.cpu_process = None
         self.cpu_queue = Queue()
+        self.search_input = None
 
     def on_mount(self):
         # Corrected set_interval to pass the method reference
@@ -253,6 +260,8 @@ class PROC_MONITOR(App):
     def compose(self) -> ComposeResult:
         yield Header()
         yield Footer()
+        self.search_input = Input(placeholder="Search for processes...")
+        yield self.search_input
         self.process_table = ProcessTable(self.cpu_queue)
         self.scroll = VerticalScroll(self.process_table)
         yield self.scroll
@@ -263,6 +272,10 @@ class PROC_MONITOR(App):
     def on_shutdown(self):
         if self.cpu_process:
             self.cpu_process.terminate()
+
+    def on_input_changed(self, event):
+        search_term = event.value
+        self.process_table.update_search_term(search_term)
 
 if __name__ == "__main__":
     app = PROC_MONITOR()
